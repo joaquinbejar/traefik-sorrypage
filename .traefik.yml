@@ -1,0 +1,12 @@
+displayName: Sorry Page
+type: middleware
+iconPath: .assets/icon.png
+
+import: github.com/joaquinbejar/traefik-sorrypage
+
+summary: 'Sorry Page'
+
+testData:
+  enabled: true
+  RedirectService: 'other-service'
+
