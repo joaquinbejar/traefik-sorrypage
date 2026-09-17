@@ -7,15 +7,35 @@ import (
 	"testing"
 )
 
-func TestSorryPagePage(t *testing.T) {
-	sorrypagePage := "sorrypage_service"
+const sorryPageBody = "<html><head></head><body>SorryPage</body></html>"
+
+// newSorryPageServer starts a fake "sorry page" backend that records the
+// requests it receives and answers with a fixed 503 HTML page.
+func newSorryPageServer(t *testing.T, received *[]*http.Request) *httptest.Server {
+	t.Helper()
+
+	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		*received = append(*received, req.Clone(req.Context()))
+		rw.Header().Set("Content-Type", "text/html; charset=utf-8")
+		rw.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = rw.Write([]byte(sorryPageBody))
+	}))
+	t.Cleanup(server.Close)
+
+	return server
+}
+
+func TestSorryPageEnabledProxiesToService(t *testing.T) {
+	var received []*http.Request
+	sorryServer := newSorryPageServer(t, &received)
 
 	cfg := CreateConfig()
 	cfg.Enabled = true
-	cfg.RedirectService = sorrypagePage
+	cfg.RedirectService = sorryServer.URL
 
 	ctx := context.Background()
-	next := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {})
+	nextCalled := false
+	next := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) { nextCalled = true })
 
 	handler, err := New(ctx, next, cfg, "traefik-sorrypage")
 	if err != nil {
@@ -24,110 +44,40 @@ func TestSorryPagePage(t *testing.T) {
 
 	recorder := httptest.NewRecorder()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://localhost", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://localhost/some/path", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	handler.ServeHTTP(recorder, req)
+
+	if nextCalled {
+		t.Error("next handler must not be called when sorrypage mode is enabled")
+	}
+
+	if len(received) != 1 {
+		t.Fatalf("expected 1 proxied request, got %d", len(received))
+	}
 
 	assertResponseStatus(t, recorder, http.StatusServiceUnavailable)
 	assertResponseHeader(t, recorder, "Content-Type", "text/html; charset=utf-8")
-	assertResponseBody(t, recorder, "<html><head></head><body>SorryPage</body></html>")
+	assertResponseBody(t, recorder, sorryPageBody)
 }
 
-func TestSorryPagePageWithOtherStatusCodeAndContentType(t *testing.T) {
-	sorrypagePage := "sorrypage_service"
-
-	cfg := CreateConfig()
-	cfg.Enabled = true
-	cfg.RedirectService = sorrypagePage
-
-	ctx := context.Background()
-	next := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {})
-
-	handler, err := New(ctx, next, cfg, "traefik-sorrypage")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	recorder := httptest.NewRecorder()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://localhost", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	handler.ServeHTTP(recorder, req)
-
-	assertResponseStatus(t, recorder, http.StatusTeapot)
-	assertResponseHeader(t, recorder, "Content-Type", "application/json; charset=utf-8")
-	assertResponseBody(t, recorder, "{\"detail\": \"This endpoint is currently in sorrypage mode\"}")
-}
-
-func TestSorryPagePageWithoutTrigger(t *testing.T) {
-	cfg := CreateConfig()
-	cfg.Enabled = true
-	sorrypagePage := "sorrypage_service"
-	cfg.RedirectService = sorrypagePage
-
-	ctx := context.Background()
-	next := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {})
-
-	handler, err := New(ctx, next, cfg, "traefik-sorrypage")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	recorder := httptest.NewRecorder()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://localhost", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	handler.ServeHTTP(recorder, req)
-
-	assertEmptyContentTypeHeader(t, recorder)
-	assertEmptyResponseBody(t, recorder)
-}
-
-func TestSorryPagePageWithMissingTrigger(t *testing.T) {
-	cfg := CreateConfig()
-	cfg.Enabled = true
-	sorrypagePage := "sorrypage_service"
-	cfg.RedirectService = sorrypagePage
-
-	ctx := context.Background()
-	next := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {})
-
-	handler, err := New(ctx, next, cfg, "traefik-sorrypage")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	recorder := httptest.NewRecorder()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://localhost", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	handler.ServeHTTP(recorder, req)
-
-	assertResponseHeader(t, recorder, "Content-Type", "text/html; charset=utf-8")
-	assertResponseBody(t, recorder, "<html><head></head><body>SorryPage</body></html>")
-}
-
-func TestDisabledSorryPagePage(t *testing.T) {
+func TestSorryPageDisabledCallsNext(t *testing.T) {
+	var received []*http.Request
+	sorryServer := newSorryPageServer(t, &received)
 
 	cfg := CreateConfig()
 	cfg.Enabled = false
-	sorrypagePage := "sorrypage_service"
-	cfg.RedirectService = sorrypagePage
+	cfg.RedirectService = sorryServer.URL
 
 	ctx := context.Background()
-	next := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {})
+	nextCalled := false
+	next := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		nextCalled = true
+		rw.WriteHeader(http.StatusOK)
+	})
 
 	handler, err := New(ctx, next, cfg, "traefik-sorrypage")
 	if err != nil {
@@ -143,8 +93,40 @@ func TestDisabledSorryPagePage(t *testing.T) {
 
 	handler.ServeHTTP(recorder, req)
 
+	if !nextCalled {
+		t.Error("next handler must be called when sorrypage mode is disabled")
+	}
+
+	if len(received) != 0 {
+		t.Errorf("expected no proxied requests, got %d", len(received))
+	}
+
+	assertResponseStatus(t, recorder, http.StatusOK)
 	assertEmptyContentTypeHeader(t, recorder)
 	assertEmptyResponseBody(t, recorder)
+}
+
+func TestNewRejectsEmptyRedirectService(t *testing.T) {
+	cfg := CreateConfig()
+	cfg.Enabled = true
+
+	next := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {})
+
+	if _, err := New(context.Background(), next, cfg, "traefik-sorrypage"); err == nil {
+		t.Fatal("expected an error for an empty redirectService")
+	}
+}
+
+func TestNewRejectsInvalidRedirectService(t *testing.T) {
+	cfg := CreateConfig()
+	cfg.Enabled = true
+	cfg.RedirectService = "http://[::1"
+
+	next := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {})
+
+	if _, err := New(context.Background(), next, cfg, "traefik-sorrypage"); err == nil {
+		t.Fatal("expected an error for an invalid redirectService URL")
+	}
 }
 
 func assertEmptyResponseBody(t *testing.T, recorder *httptest.ResponseRecorder) {
@@ -169,7 +151,7 @@ func assertResponseStatus(t *testing.T, resp *httptest.ResponseRecorder, expecte
 	t.Helper()
 
 	if resp.Code != expected {
-		t.Errorf("invalid resonse status [%d] was expecting [%d]", resp.Code, expected)
+		t.Errorf("invalid response status [%d] was expecting [%d]", resp.Code, expected)
 	}
 }
 
