@@ -66,13 +66,21 @@ http:
           RedirectService: 'sorrypage'
 ```
 
-## Author
+## Contribution and Contact
 
-**Joaquín Béjar García**
-
+### **Contact Information**
+- **Author**: Joaquín Béjar García
 - **Email**: jb@taunais.com
-- **GitHub**: [github.com/joaquinbejar/traefik-sorrypage](https://github.com/joaquinbejar/traefik-sorrypage)
+- **Telegram**: [@joaquin_bejar](https://t.me/joaquin_bejar)
+- **Repository**: <https://github.com/joaquinbejar/traefik-sorrypage>
 
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+<!-- related-projects:start -->
+## Related projects
+
+No other repositories by the same author depend on this project, and it depends on none of them. See all of them at <https://github.com/joaquinbejar?tab=repositories>.
+
+<!-- related-projects:end -->
